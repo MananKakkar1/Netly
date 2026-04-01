@@ -1,78 +1,44 @@
-# Basketball Analysis System
+# Netly
 
-A web-based interface to launch real-time basketball analysis using OpenCV and YOLO models.
+Netly is a streamlined basketball review app with a React frontend and a single Flask backend. The current codebase focuses on dependable browser workflows instead of the older desktop-launch and multi-service setup.
 
-## Features
+## What it does
 
-- **Real-time Basketball Detection**: Detects basketballs using YOLO models
-- **Player Pose Estimation**: Tracks player movements and body positions
-- **Traveling Violation Detection**: Automatically detects traveling violations
-- **Visual Overlays**: Shows bounding boxes, keypoints, and analysis results
-- **Web Interface**: Simple React frontend to launch the analysis
+- Upload a video and generate a processed MP4 review session
+- Score each session for visibility, focus, activity, and stability
+- Surface timestamped review events like `high_activity`, `stable_window`, `low_visibility`, and `soft_focus`
+- Use a browser-native webcam workspace that scores lighting, clarity, contrast, and framing from live snapshots
+- Store users and session metadata locally so the app can run without MongoDB
 
-## Architecture
+## Structure
 
-- **Frontend**: React app that provides a button to launch the analysis
-- **Backend**: Flask server that launches the `person_ball_detection.py` script
-- **Analysis**: Desktop app using OpenCV and YOLO models with backend webcam
+- `frontend/`: Vite + React app
+- `backend/`: Flask API, lightweight OpenCV analysis, local JSON storage
 
-## Setup
+## Local setup
 
-### 1. Install Dependencies
+### Backend
 
 ```bash
-# Backend dependencies
 cd backend
 pip install -r requirements.txt
-pip install -r opencv-test/requirements.txt
-
-# Frontend dependencies
-cd ../frontend
-npm install
+python start_backend.py
 ```
 
-### 2. Start the Backend
+The backend runs on `http://localhost:5002`.
 
-```bash
-cd backend
-python3 start_backend.py
-```
-
-The backend will be available at `http://localhost:5002`
-
-### 3. Start the Frontend
+### Frontend
 
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 
-The frontend will be available at `http://localhost:5173`
+The frontend runs on `http://localhost:5173`.
 
-## Usage
+## Notes
 
-1. **Open the web interface** at `http://localhost:5173`
-2. **Navigate to the Basketball Analysis page**
-3. **Click "Start Analysis"** - this will launch the desktop app
-4. **A new window will open** with real-time basketball analysis
-5. **Press 'q'** in the analysis window to quit
-
-## How It Works
-
-1. The frontend sends a request to the backend API
-2. The backend launches `person_ball_detection.py` as a subprocess
-3. The desktop app opens with OpenCV window showing:
-   - Real-time webcam feed
-   - Basketball detection (green bounding boxes)
-   - Player pose estimation (colored keypoints)
-   - Traveling violation detection
-   - Ball possession tracking
-   - Visual overlays and status text
-
-
-## Controls
-
-- **Press 'q'** in the analysis window to quit
-- The app automatically detects basketballs and players
-- Visual indicators show ball possession and violations
-- Real-time analysis results are displayed on screen 
+- User accounts are stored locally in `backend/data/users.json` at runtime.
+- Session artifacts are written to `backend/data/sessions/`.
+- The webcam flow now stays entirely in the browser; it no longer launches a separate desktop analysis process.

@@ -1,178 +1,119 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState } from "react"
+import type { ReactNode } from "react"
 
-interface User {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-}
+import { loginUser, logoutUser, signupUser, verifyToken } from "../lib/api"
+import type { User } from "../lib/api"
 
 interface AuthContextType {
-  user: User | null;
-  token: string | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  signup: (firstName: string, lastName: string, email: string, password: string) => Promise<boolean>;
-  logout: () => void;
-  isLoading: boolean;
-  error: string | null;
+  user: User | null
+  token: string | null
+  login: (email: string, password: string) => Promise<boolean>
+  signup: (firstName: string, lastName: string, email: string, password: string) => Promise<boolean>
+  logout: () => Promise<void>
+  isLoading: boolean
+  error: string | null
+  clearError: () => void
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const STORAGE_KEY = "netly.token"
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
+  const context = useContext(AuthContext)
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider")
   }
-  return context;
-};
+  return context
+}
 
 interface AuthProviderProps {
-  children: ReactNode;
+  children: ReactNode
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [isLoading, setIsLoading] = useState(true); // Start with loading true
-  const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null)
+  const [token, setToken] = useState<string | null>(localStorage.getItem(STORAGE_KEY))
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Check if token is valid on app start
   useEffect(() => {
-    const verifyToken = async () => {
-      const storedToken = localStorage.getItem('token');
-      if (storedToken) {
-        try {
-          const response = await fetch('http://localhost:5002/verify-token', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ token: storedToken }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            if (data.valid) {
-              setUser(data.user);
-              setToken(storedToken);
-              console.log('Token verified successfully');
-            } else {
-              console.log('Token invalid, clearing auth state');
-              localStorage.removeItem('token');
-              setToken(null);
-              setUser(null);
-            }
-          } else {
-            console.log('Token verification failed with status:', response.status);
-            // Don't clear token on server errors, just keep the current state
-            setToken(storedToken);
-          }
-        } catch (err) {
-          console.error('Token verification failed:', err);
-          // On network errors, keep the token and don't log out
-          // This prevents logout when backend is temporarily unavailable
-          setToken(storedToken);
-          console.log('Network error during token verification, keeping token');
-        }
-      } else {
-        console.log('No token found in localStorage');
+    const hydrateAuth = async () => {
+      const storedToken = localStorage.getItem(STORAGE_KEY)
+      if (!storedToken) {
+        setIsLoading(false)
+        return
       }
-      setIsLoading(false);
-    };
 
-    verifyToken();
-  }, []);
+      setToken(storedToken)
+      try {
+        const payload = await verifyToken(storedToken)
+        if (payload.valid) {
+          setUser(payload.user)
+        } else {
+          localStorage.removeItem(STORAGE_KEY)
+          setToken(null)
+        }
+      } catch {
+        setError("We couldn't verify your session, but you can keep working locally.")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    hydrateAuth()
+  }, [])
+
+  const commitSession = (nextToken: string, nextUser: User) => {
+    setToken(nextToken)
+    setUser(nextUser)
+    setError(null)
+    localStorage.setItem(STORAGE_KEY, nextToken)
+  }
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    setError(null);
-
+    setIsLoading(true)
+    setError(null)
     try {
-      const response = await fetch('http://localhost:5002/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setUser(data.user);
-        setToken(data.token);
-        localStorage.setItem('token', data.token);
-        console.log('Login successful');
-        return true;
-      } else {
-        setError(data.error || 'Login failed');
-        return false;
-      }
+      const payload = await loginUser(email, password)
+      commitSession(payload.token, payload.user)
+      return true
     } catch (err) {
-      console.error('Login error:', err);
-      setError('Network error. Please check your connection.');
-      return false;
+      setError(err instanceof Error ? err.message : "Login failed")
+      return false
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const signup = async (firstName: string, lastName: string, email: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    setError(null);
-
+    setIsLoading(true)
+    setError(null)
     try {
-      const response = await fetch('http://localhost:5002/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ firstName, lastName, email, password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        // After successful signup, automatically log in
-        return await login(email, password);
-      } else {
-        setError(data.error || 'Signup failed');
-        return false;
-      }
+      const payload = await signupUser(firstName, lastName, email, password)
+      commitSession(payload.token, payload.user)
+      return true
     } catch (err) {
-      console.error('Signup error:', err);
-      setError('Network error. Please check your connection.');
-      return false;
+      setError(err instanceof Error ? err.message : "Signup failed")
+      return false
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const logout = async () => {
-    console.log('Logout called');
     if (token) {
       try {
-        // Call logout endpoint
-        await fetch('http://localhost:5002/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-      } catch (err) {
-        console.error('Logout error:', err);
+        await logoutUser(token)
+      } catch {
+        // Keep local logout resilient even if the server is unavailable.
       }
     }
 
-    // Clear local state regardless of server response
-    setUser(null);
-    setToken(null);
-    localStorage.removeItem('token');
-    console.log('Logout completed');
-  };
+    setUser(null)
+    setToken(null)
+    setError(null)
+    localStorage.removeItem(STORAGE_KEY)
+  }
 
   const value: AuthContextType = {
     user,
@@ -182,7 +123,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     logout,
     isLoading,
     error,
-  };
+    clearError: () => setError(null),
+  }
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}; 
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}

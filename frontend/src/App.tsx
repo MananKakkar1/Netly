@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom"
+import { BrowserRouter as Router, Navigate, Route, Routes } from "react-router-dom"
 import { AuthProvider } from "./context/AuthContext"
 import ProtectedRoute from "./components/ProtectedRoute"
 import HomePage from "./pages/HomePage"
@@ -19,26 +19,39 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
-            <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/analyze/webcam" element={
-              <ProtectedRoute>
-                <WebcamAnalysisPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/analyze/upload" element={
-              <ProtectedRoute>
-                <VideoUploadPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/analyze/results" element={
-              <ProtectedRoute>
-                <AnalysisResultsPage />
-              </ProtectedRoute>
-            } />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analyze/webcam"
+              element={
+                <ProtectedRoute>
+                  <WebcamAnalysisPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analyze/upload"
+              element={
+                <ProtectedRoute>
+                  <VideoUploadPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analyze/results"
+              element={
+                <ProtectedRoute>
+                  <AnalysisResultsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
       </Router>

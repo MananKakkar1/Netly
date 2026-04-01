@@ -1,9 +1,8 @@
-"use client"
-
 import type React from "react"
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { BarChart3 } from "lucide-react"
+import { ArrowRight, BarChart3 } from "lucide-react"
+
 import { useAuth } from "../context/AuthContext"
 
 const SignupPage: React.FC = () => {
@@ -13,134 +12,148 @@ const SignupPage: React.FC = () => {
     email: "",
     password: "",
     confirmPassword: "",
-    agreeToTerms: false,
   })
-  const { signup, isLoading, error } = useAuth()
+  const { signup, isLoading, error, clearError } = useAuth()
+  const [localError, setLocalError] = useState<string | null>(null)
   const navigate = useNavigate()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    // Validate passwords match
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setLocalError(null)
+
+    if (formData.password.length < 8) {
+      setLocalError("Use at least 8 characters for a stronger password.")
+      return
+    }
+
     if (formData.password !== formData.confirmPassword) {
+      setLocalError("Passwords do not match.")
       return
     }
 
     const success = await signup(formData.firstName, formData.lastName, formData.email, formData.password)
     if (success) {
-      navigate('/dashboard')
+      navigate("/dashboard")
     }
   }
 
-  const handleInputChange = (field: string, value: string | boolean) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+  const updateField = (field: keyof typeof formData, value: string) => {
+    clearError()
+    setLocalError(null)
+    setFormData((current) => ({ ...current, [field]: value }))
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-container">
-        <div className="auth-header">
-          <Link to="/" className="logo">
-            <BarChart3 size={32} />
+    <div className="page page-auth">
+      <div className="auth-shell">
+        <div className="auth-panel">
+          <Link to="/" className="brand">
+            <BarChart3 size={24} />
             <span>Netly</span>
           </Link>
+
+          <div className="auth-copy">
+            <span className="eyebrow">Get started</span>
+            <h1>Create your basketball review workspace.</h1>
+            <p>
+              Make an account to store upload sessions, run the webcam workspace, and keep every film session inside
+              one polished system.
+            </p>
+          </div>
+
+          <div className="auth-panel-stats">
+            <div>
+              <span>Upload review</span>
+              <strong>One click in</strong>
+            </div>
+            <div>
+              <span>Live setup</span>
+              <strong>Always visible</strong>
+            </div>
+          </div>
+
+          <ul className="auth-highlights">
+            <li>Store sessions under one login instead of juggling temporary screens.</li>
+            <li>Jump from setup scoring to clip review without breaking the flow.</li>
+            <li>Keep every rep in a cleaner, more cinematic basketball environment.</li>
+          </ul>
         </div>
 
         <div className="auth-card">
-          <div className="auth-card-header">
-            <h1>Create your account</h1>
-            <p>Start analyzing your basketball gameplay today</p>
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">Create account</span>
+              <h2>Start your workspace</h2>
+            </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="auth-form">
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="firstName">First name</label>
+          <form onSubmit={handleSubmit} className="form-stack">
+            <div className="field-row">
+              <label className="field">
+                <span>First name</span>
                 <input
-                  id="firstName"
-                  placeholder="John"
                   value={formData.firstName}
-                  onChange={(e) => handleInputChange("firstName", e.target.value)}
+                  onChange={(event) => updateField("firstName", event.target.value)}
+                  placeholder="Maya"
                   required
                 />
-              </div>
-              <div className="form-group">
-                <label htmlFor="lastName">Last name</label>
+              </label>
+
+              <label className="field">
+                <span>Last name</span>
                 <input
-                  id="lastName"
-                  placeholder="Doe"
                   value={formData.lastName}
-                  onChange={(e) => handleInputChange("lastName", e.target.value)}
+                  onChange={(event) => updateField("lastName", event.target.value)}
+                  placeholder="Jordan"
                   required
                 />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="email">Email</label>
-              <input
-                id="email"
-                type="email"
-                placeholder="john@example.com"
-                value={formData.email}
-                onChange={(e) => handleInputChange("email", e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                placeholder="Create a strong password"
-                value={formData.password}
-                onChange={(e) => handleInputChange("password", e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="confirmPassword">Confirm password</label>
-              <input
-                id="confirmPassword"
-                type="password"
-                placeholder="Confirm your password"
-                value={formData.confirmPassword}
-                onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="checkbox-group">
-              <input
-                id="terms"
-                type="checkbox"
-                checked={formData.agreeToTerms}
-                onChange={(e) => handleInputChange("agreeToTerms", e.target.checked)}
-              />
-              <label htmlFor="terms">
-                I agree to the <Link to="/terms">Terms of Service</Link> and <Link to="/privacy">Privacy Policy</Link>
               </label>
             </div>
 
-            {error && (
-              <div className="error-message">
-                {error}
-              </div>
-            )}
+            <label className="field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(event) => updateField("email", event.target.value)}
+                placeholder="maya@netly.app"
+                required
+              />
+            </label>
 
-            <button 
-              type="submit" 
-              className="btn btn-primary btn-full" 
-              disabled={!formData.agreeToTerms || isLoading}
-            >
-              {isLoading ? 'Creating Account...' : 'Create Account'}
+            <label className="field">
+              <span>Password</span>
+              <input
+                type="password"
+                value={formData.password}
+                onChange={(event) => updateField("password", event.target.value)}
+                placeholder="At least 8 characters"
+                required
+              />
+            </label>
+
+            <label className="field">
+              <span>Confirm password</span>
+              <input
+                type="password"
+                value={formData.confirmPassword}
+                onChange={(event) => updateField("confirmPassword", event.target.value)}
+                placeholder="Re-enter your password"
+                required
+              />
+            </label>
+
+            {localError ? <div className="inline-alert inline-alert-danger">{localError}</div> : null}
+            {error ? <div className="inline-alert inline-alert-danger">{error}</div> : null}
+
+            <button type="submit" className="button button-primary button-block" disabled={isLoading}>
+              {isLoading ? "Creating account..." : "Create account"}
+              <ArrowRight size={18} />
             </button>
 
-            <div className="auth-switch">
+            <p className="auth-switch">
               Already have an account? <Link to="/login">Sign in</Link>
-            </div>
+            </p>
           </form>
         </div>
       </div>

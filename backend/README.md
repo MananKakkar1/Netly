@@ -1,33 +1,32 @@
-# Backend Setup
+# Backend
 
-## Installation
+The backend is a single Flask service that handles auth, video uploads, processed session storage, and browser webcam snapshot analysis.
 
-1. Install Python dependencies:
+## Run it
+
 ```bash
 pip install -r requirements.txt
+python start_backend.py
 ```
 
-2. Create a `.env` file in the backend directory with your MongoDB password:
-```
-MONGO_PASSWORD=your_actual_mongodb_password
-```
+The server listens on `http://localhost:5002`.
 
-3. Run the Flask server:
-```bash
-python user.py
-```
+## Main responsibilities
 
-The server will start on `http://127.0.0.1:5000`
+- `POST /signup`
+- `POST /login`
+- `POST /logout`
+- `POST /verify-token`
+- `POST /api/analyze`
+- `GET /api/events/<session_id>`
+- `GET /api/video/<session_id>`
+- `GET /api/sessions`
+- `DELETE /api/sessions/<session_id>`
+- `POST /api/webcam/analyze`
 
-## Endpoints
+## Storage
 
-- `POST /signup` - Create a new user account
-- `POST /login` - Authenticate user login
+- Users are stored in `backend/data/users.json`
+- Session metadata, event JSON, and processed videos are stored under `backend/data/sessions/`
 
-## Dependencies
-
-- Flask - Web framework
-- pymongo - MongoDB driver
-- python-dotenv - Environment variable management
-- flask-cors - Cross-origin resource sharing
-- Werkzeug - Password hashing utilities 
+The service creates those paths automatically on first run.

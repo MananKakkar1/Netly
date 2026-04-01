@@ -1,327 +1,308 @@
-"use client"
-
-import React, { useState, useRef } from "react"
+import type React from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Upload, BarChart3, ArrowLeft, FileVideo, CheckCircle, AlertCircle } from "lucide-react"
-import { useAuth } from "../context/AuthContext"
+import { AlertCircle, ArrowLeft, BarChart3, CheckCircle2, FileVideo, Upload } from "lucide-react"
 
-interface AnalysisResponse {
-  success: boolean
-  session_id: string
-  events: any
-  output_video_url: string
-  video_duration: number
-  message: string
-}
+import { useAuth } from "../context/AuthContext"
+import { analyzeVideo } from "../lib/api"
+
+const STORAGE_KEY = "netly.latestAnalysis"
+
+type ReviewMode = "quick" | "balanced" | "full"
+
+const reviewModes: Array<{
+  value: ReviewMode
+  title: string
+  description: string
+  detail: string
+}> = [
+  {
+    value: "quick",
+    title: "Quick scan",
+    description: "Fast prep pass for shorter clips and lighter feedback loops.",
+    detail: "~900 frames",
+  },
+  {
+    value: "balanced",
+    title: "Balanced review",
+    description: "Best everyday mode for training film and game snippets.",
+    detail: "~1800 frames",
+  },
+  {
+    value: "full",
+    title: "Full clip",
+    description: "Longest pass for deeper session context and a fuller marker set.",
+    detail: "Whole clip",
+  },
+]
 
 const VideoUploadPage: React.FC = () => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [isUploading, setIsUploading] = useState(false)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [analysisComplete, setAnalysisComplete] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const navigate = useNavigate()
   const { token } = useAuth()
+  const navigate = useNavigate()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const progressTimerRef = useRef<number | null>(null)
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file && file.type.startsWith("video/")) {
-      setSelectedFile(file)
-      setError(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("balanced")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current !== null) {
+        window.clearInterval(progressTimerRef.current)
+      }
+    }
+  }, [])
+
+  const beginProgress = () => {
+    if (progressTimerRef.current !== null) {
+      window.clearInterval(progressTimerRef.current)
+    }
+
+    progressTimerRef.current = window.setInterval(() => {
+      setProgress((current) => {
+        if (current >= 94) {
+          return current
+        }
+        return current < 72 ? current + 6 : current + 2
+      })
+    }, 220)
+  }
+
+  const stopProgress = () => {
+    if (progressTimerRef.current !== null) {
+      window.clearInterval(progressTimerRef.current)
+      progressTimerRef.current = null
     }
   }
 
-  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    const file = event.dataTransfer.files[0]
+  const updateSelectedFile = (file: File | null) => {
+    setError(null)
     if (file && file.type.startsWith("video/")) {
       setSelectedFile(file)
-      setError(null)
+      return
+    }
+
+    if (file) {
+      setError("Choose a supported video file.")
     }
   }
 
-  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-  }
-
-  const uploadAndAnalyze = async () => {
+  const handleSubmit = async () => {
     if (!selectedFile) {
-      setError("Please select a video file first")
+      setError("Pick a video before starting the review.")
       return
     }
 
     if (!token) {
-      setError("Please log in to upload videos")
+      setError("Sign in again before uploading a clip.")
       return
     }
 
-    setIsUploading(true)
-    setIsAnalyzing(false)
+    const formData = new FormData()
+    formData.append("video", selectedFile)
+
+    if (reviewMode === "quick") {
+      formData.append("max_frames", "900")
+    }
+    if (reviewMode === "balanced") {
+      formData.append("max_frames", "1800")
+    }
+
+    setIsSubmitting(true)
+    setProgress(8)
     setError(null)
-    setUploadProgress(0)
+    beginProgress()
 
     try {
-      // Create FormData for file upload
-      const formData = new FormData()
-      formData.append('video', selectedFile)
-      formData.append('max_frames', '300') // Optional: limit frames for faster testing
-
-      // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval)
-            return 90
-          }
-          return prev + 10
-        })
-      }, 200)
-
-      // Make API call to backend server at localhost:5002
-      const response = await fetch('http://localhost:5002/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      })
-
-      clearInterval(progressInterval)
-      setUploadProgress(100)
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-        let detailedError = errorData.error || 'Upload failed'
-        if (errorData.stderr) {
-          detailedError += `:\n\n${errorData.stderr}`
-        }
-        throw new Error(detailedError)
-      }
-
-      const data: AnalysisResponse = await response.json()
-      
-      if (data.success) {
-        setAnalysisData(data)
-        setIsUploading(false)
-        setIsAnalyzing(true)
-        
-        // Simulate analysis time
-        setTimeout(() => {
-          setIsAnalyzing(false)
-          setAnalysisComplete(true)
-        }, 2000)
-      } else {
-        throw new Error(data.message || 'Analysis failed')
-      }
-
+      const result = await analyzeVideo(token, formData)
+      stopProgress()
+      setProgress(100)
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(result))
+      navigate(`/analyze/results?session_id=${result.session_id}`)
     } catch (err) {
-      console.error('Upload error:', err)
-      setError(err instanceof Error ? err.message : 'Upload failed')
-      setIsUploading(false)
-      setIsAnalyzing(false)
-      setUploadProgress(0)
+      stopProgress()
+      setProgress(0)
+      setError(err instanceof Error ? err.message : "The upload could not be completed.")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-  }
-
-  const viewResults = () => {
-    if (analysisData) {
-      // Store the analysis data in localStorage for the results page
-      localStorage.setItem('analysisData', JSON.stringify(analysisData))
-      navigate('/analyze/results')
+    if (bytes < 1024 * 1024) {
+      return `${Math.round(bytes / 1024)} KB`
     }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  if (analysisComplete) {
-    return (
-      <div className="upload-page">
-        <header className="analysis-header">
-          <div className="header-left">
-            <Link to="/dashboard" className="btn btn-ghost">
-              <ArrowLeft size={16} />
-              Back to Dashboard
-            </Link>
-            <div className="page-title">
-              <BarChart3 size={24} />
-              <span>Analysis Complete</span>
-            </div>
-          </div>
-        </header>
-
-        <main className="upload-main">
-          <div className="container">
-            <div className="completion-content">
-              <div className="completion-header">
-                <CheckCircle size={64} className="text-green" />
-                <h1>Analysis Complete!</h1>
-                <p>Your video has been processed and analyzed successfully.</p>
-              </div>
-
-              <div className="completion-stats">
-                <div className="stat-item">
-                  <div className="stat-value">{analysisData?.events?.summary?.total_events || 0}</div>
-                  <div className="stat-label">Events Found</div>
-                </div>
-                <div className="stat-item">
-                  <div className="stat-value">
-                    {analysisData?.video_duration 
-                      ? `${Math.floor(analysisData.video_duration / 60)}:${Math.floor(analysisData.video_duration % 60).toString().padStart(2, '0')}`
-                      : analysisData?.events?.metadata?.video_duration 
-                        ? `${Math.floor(analysisData.events.metadata.video_duration / 60)}:${Math.floor(analysisData.events.metadata.video_duration % 60).toString().padStart(2, '0')}`
-                        : 'N/A'
-                    }
-                  </div>
-                  <div className="stat-label">Duration</div>
-                </div>
-              </div>
-
-              <div className="completion-actions">
-                <button onClick={viewResults} className="btn btn-primary btn-large">
-                  View Analysis Results
-                </button>
-                <button className="btn btn-outline" onClick={() => window.location.reload()}>
-                  Analyze Another Video
-                </button>
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
-    )
-  }
+  const progressLabel =
+    progress < 40 ? "Uploading clip" : progress < 85 ? "Reviewing frames" : "Packaging your results"
 
   return (
-    <div className="upload-page">
-      {/* Header */}
-      <header className="analysis-header">
-        <div className="header-left">
-          <Link to="/dashboard" className="btn btn-ghost">
-            <ArrowLeft size={16} />
-            Back to Dashboard
+    <div className="page page-upload">
+      <header className="topbar">
+        <div className="topbar-actions">
+          <Link to="/dashboard" className="button button-ghost">
+            <ArrowLeft size={18} />
+            Back
           </Link>
-          <div className="page-title">
-            <BarChart3 size={24} />
-            <span>Video Upload</span>
-          </div>
         </div>
+
+        <Link to="/" className="brand">
+          <BarChart3 size={24} />
+          <span>Netly</span>
+        </Link>
       </header>
 
-      <main className="upload-main">
-        <div className="container">
-          <div className="upload-content">
-            <div className="upload-header">
-              <h1>Upload Your Basketball Video</h1>
-              <p>Upload your game footage to receive detailed analysis with timestamps and insights.</p>
-            </div>
-
-            <div className="upload-card">
-              <div className="upload-card-header">
-                <h3>Select Video File</h3>
-              </div>
-              <div className="upload-card-content">
-                {!selectedFile ? (
-                  <div
-                    className="upload-dropzone"
-                    onDrop={handleDrop}
-                    onDragOver={handleDragOver}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Upload size={48} className="upload-icon" />
-                    <h3>Drop your video here</h3>
-                    <p>or click to browse files</p>
-                    <small>Supports MP4, MOV, AVI files up to 500MB</small>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="video/*"
-                      onChange={handleFileSelect}
-                      style={{ display: "none" }}
-                    />
-                  </div>
-                ) : (
-                  <div className="upload-file-info">
-                    <div className="file-info">
-                      <FileVideo size={32} className="file-icon" />
-                      <div className="file-details">
-                        <h4>{selectedFile.name}</h4>
-                        <p>{formatFileSize(selectedFile.size)}</p>
-                      </div>
-                      <button className="btn btn-ghost" onClick={() => setSelectedFile(null)}>
-                        Remove
-                      </button>
-                    </div>
-
-                    {error && (
-                      <div className="error-message" style={{ color: 'red', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <AlertCircle size={16} />
-                        {error}
-                      </div>
-                    )}
-
-                    {isUploading && (
-                      <div className="upload-progress">
-                        <div className="progress-info">
-                          <span>Uploading...</span>
-                          <span>{uploadProgress}%</span>
-                        </div>
-                        <div className="progress-bar">
-                          <div className="progress-fill" style={{ width: `${uploadProgress}%` }}></div>
-                        </div>
-                      </div>
-                    )}
-
-                    {isAnalyzing && (
-                      <div className="analyzing-state">
-                        <div className="spinner"></div>
-                        <p>Analyzing your video... This may take a few minutes.</p>
-                      </div>
-                    )}
-
-                    {!isUploading && !isAnalyzing && (
-                      <button onClick={uploadAndAnalyze} className="btn btn-primary btn-full btn-large">
-                        Start Analysis
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Upload Tips */}
-            <div className="tips-card">
-              <div className="tips-header">
-                <h3>Tips for Best Results</h3>
-              </div>
-              <div className="tips-list">
-                <div className="tip-item">
-                  <CheckCircle size={16} className="text-green" />
-                  <span>Ensure good lighting and clear visibility of players</span>
-                </div>
-                <div className="tip-item">
-                  <CheckCircle size={16} className="text-green" />
-                  <span>Keep the camera stable and focused on the court</span>
-                </div>
-                <div className="tip-item">
-                  <CheckCircle size={16} className="text-green" />
-                  <span>Higher resolution videos provide more accurate analysis</span>
-                </div>
-                <div className="tip-item">
-                  <CheckCircle size={16} className="text-green" />
-                  <span>Include the full court view when possible</span>
-                </div>
-              </div>
-            </div>
+      <main className="workspace-shell">
+        <section className="workspace-header">
+          <div>
+            <span className="eyebrow">Upload review</span>
+            <h1>Bring in a clip and let Netly stage a richer review session.</h1>
+            <p>Choose the scan depth, watch the upload pulse forward, and jump straight into the processed timeline.</p>
           </div>
+        </section>
+
+        <div className="upload-layout">
+          <section className="panel panel-spacious">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">Clip</span>
+                <h2>Select your file</h2>
+              </div>
+            </div>
+
+            {!selectedFile ? (
+              <button
+                type="button"
+                className="dropzone"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isSubmitting}
+              >
+                <Upload size={32} />
+                <strong>Drop a practice clip here or browse</strong>
+                <span>MP4, MOV, AVI, and MKV are supported.</span>
+              </button>
+            ) : (
+              <div className="selected-file-card">
+                <div className="selected-file-meta">
+                  <FileVideo size={28} />
+                  <div>
+                    <strong>{selectedFile.name}</strong>
+                    <span>{formatFileSize(selectedFile.size)}</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="button button-ghost"
+                  onClick={() => setSelectedFile(null)}
+                  disabled={isSubmitting}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              hidden
+              onChange={(event) => updateSelectedFile(event.target.files?.[0] ?? null)}
+            />
+
+            <div className="field">
+              <span>Review depth</span>
+              <div className="mode-card-grid">
+                {reviewModes.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    className={`mode-card ${reviewMode === mode.value ? "is-active" : ""}`}
+                    onClick={() => setReviewMode(mode.value)}
+                    disabled={isSubmitting}
+                  >
+                    <div className="mode-card-copy">
+                      <strong>{mode.title}</strong>
+                      <span>{mode.description}</span>
+                    </div>
+                    <small>{mode.detail}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {error ? (
+              <div className="inline-alert inline-alert-danger">
+                <AlertCircle size={18} />
+                <span>{error}</span>
+              </div>
+            ) : null}
+
+            {isSubmitting ? (
+              <div className="progress-card">
+                <div className="progress-row">
+                  <strong>{progressLabel}</strong>
+                  <span>{progress}%</span>
+                </div>
+                <div className="progress-bar">
+                  <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              className="button button-primary button-block"
+              onClick={handleSubmit}
+              disabled={isSubmitting || !selectedFile}
+            >
+              Start review
+            </button>
+          </section>
+
+          <aside className="panel panel-spacious">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">Expected output</span>
+                <h2>What you'll get back</h2>
+              </div>
+            </div>
+
+            <div className="check-list">
+              <div className="check-row">
+                <CheckCircle2 size={18} />
+                <span>A processed MP4 copy tied to one session ID</span>
+              </div>
+              <div className="check-row">
+                <CheckCircle2 size={18} />
+                <span>Review scores for visibility, focus, activity, and stability</span>
+              </div>
+              <div className="check-row">
+                <CheckCircle2 size={18} />
+                <span>Timestamped events for high activity, stable windows, and setup issues</span>
+              </div>
+            </div>
+
+            <div className="upload-process">
+              <div className="upload-process-step">
+                <span>01</span>
+                <strong>Ingest the clip</strong>
+              </div>
+              <div className="upload-process-step">
+                <span>02</span>
+                <strong>Score the frames</strong>
+              </div>
+              <div className="upload-process-step">
+                <span>03</span>
+                <strong>Open the timeline</strong>
+              </div>
+            </div>
+          </aside>
         </div>
       </main>
     </div>

@@ -1,320 +1,335 @@
-"use client"
-
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
-import { Camera, Square, BarChart3, ArrowLeft, AlertTriangle, CheckCircle } from "lucide-react"
+import { AlertCircle, ArrowLeft, BarChart3, Camera, PauseCircle, PlayCircle, Square } from "lucide-react"
 
-interface LiveEvent {
-  id: string
-  type: string
-  description: string
-  timestamp: string
-  severity: "info" | "warning" | "error"
-}
+import { useAuth } from "../context/AuthContext"
+import { analyzeWebcamFrame } from "../lib/api"
+import type { WebcamSnapshot } from "../lib/api"
 
 const WebcamAnalysisPage: React.FC = () => {
-  const [isRunning, setIsRunning] = useState(false)
-  const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([])
-  const [processInfo, setProcessInfo] = useState<{
-    pid?: number
-    message?: string
-    error?: string
-  } | null>(null)
+  const { token } = useAuth()
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const pollRef = useRef<number | null>(null)
+  const requestInFlightRef = useRef(false)
 
-  const startAnalysis = async () => {
+  const [isCameraReady, setIsCameraReady] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [snapshot, setSnapshot] = useState<WebcamSnapshot | null>(null)
+  const [history, setHistory] = useState<WebcamSnapshot[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  const stopPolling = () => {
+    if (pollRef.current !== null) {
+      window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  const stopCamera = () => {
+    stopPolling()
+    setIsAnalyzing(false)
+    setIsCameraReady(false)
+
+    if (streamRef.current) {
+      for (const track of streamRef.current.getTracks()) {
+        track.stop()
+      }
+      streamRef.current = null
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+  }
+
+  const startCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("This browser does not support camera access.")
+      return false
+    }
+
     try {
-      setIsRunning(true)
-      setProcessInfo(null)
-      
-      // Call the backend API to launch the basketball analysis
-      const response = await fetch('http://localhost:5002/api/launch-desktop-app', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "user",
         },
+        audio: false,
       })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        setProcessInfo({
-          pid: data.pid,
-          message: data.message
-        })
-        
-        // Simulate some live events for demonstration
-        simulateLiveEvents()
-        
-        console.log('Basketball analysis launched successfully:', data.message)
-      } else {
-        setProcessInfo({
-          error: data.error
-        })
-        console.error('Failed to launch basketball analysis:', data.error)
+
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
       }
-    } catch (error) {
-      setProcessInfo({
-        error: 'Failed to connect to backend server'
-      })
-      console.error('Error launching basketball analysis:', error)
+
+      setError(null)
+      setIsCameraReady(true)
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Camera access was denied.")
+      return false
     }
   }
 
-  const stopAnalysis = async () => {
+  const captureSnapshot = async () => {
+    if (!token || !videoRef.current || !canvasRef.current || requestInFlightRef.current) {
+      return
+    }
+
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video.videoWidth || !video.videoHeight) {
+      return
+    }
+
+    requestInFlightRef.current = true
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const context = canvas.getContext("2d")
+    if (!context) {
+      requestInFlightRef.current = false
+      return
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+
     try {
-      // Call the backend API to kill the basketball analysis process
-      const response = await fetch('http://localhost:5002/api/kill-desktop-app', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        console.log('Analysis stopped successfully:', data.message)
-        setProcessInfo({
-          message: data.message
-        })
-      } else {
-        console.error('Failed to stop analysis:', data.error)
-        setProcessInfo({
-          error: data.error
-        })
-      }
-    } catch (error) {
-      console.error('Error stopping analysis:', error)
-      setProcessInfo({
-        error: 'Failed to connect to backend server'
-      })
-    }
-    
-    // Reset state after a short delay
-    setTimeout(() => {
-      setIsRunning(false)
-      setProcessInfo(null)
-      setLiveEvents([])
-    }, 2000)
-  }
-
-  const checkAnalysisStatus = async () => {
-    try {
-      const response = await fetch('http://localhost:5002/api/analysis-status')
-      const data = await response.json()
-      
-      if (data.running) {
-        setIsRunning(true)
-        setProcessInfo({
-          pid: data.pid,
-          message: data.message
-        })
-      } else {
-        setIsRunning(false)
-        setProcessInfo(null)
-      }
-    } catch (error) {
-      console.error('Error checking analysis status:', error)
+      const image = canvas.toDataURL("image/jpeg", 0.82)
+      const nextSnapshot = await analyzeWebcamFrame(token, image)
+      setSnapshot(nextSnapshot)
+      setHistory((current) => [nextSnapshot, ...current].slice(0, 6))
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not analyze the current frame.")
+    } finally {
+      requestInFlightRef.current = false
     }
   }
 
-  // Check status on component mount
+  const startReview = async () => {
+    if (!token) {
+      setError("Sign in again before using live review.")
+      return
+    }
+
+    const ready = streamRef.current ? true : await startCamera()
+    if (!ready) {
+      return
+    }
+
+    stopPolling()
+    setIsAnalyzing(true)
+    await captureSnapshot()
+    pollRef.current = window.setInterval(() => {
+      void captureSnapshot()
+    }, 3000)
+  }
+
+  const pauseReview = () => {
+    stopPolling()
+    setIsAnalyzing(false)
+  }
+
   useEffect(() => {
-    checkAnalysisStatus()
+    return () => {
+      if (pollRef.current !== null) {
+        window.clearInterval(pollRef.current)
+      }
+
+      if (streamRef.current) {
+        for (const track of streamRef.current.getTracks()) {
+          track.stop()
+        }
+      }
+    }
   }, [])
 
-  const simulateLiveEvents = () => {
-    const events = [
-      { type: "Analysis Started", description: "Basketball analysis window opened", severity: "info" as const },
-      { type: "Detection Active", description: "Real-time ball and player detection running", severity: "info" as const },
-      { type: "Webcam Active", description: "Backend webcam feed processing", severity: "info" as const },
-      { type: "OpenCV Overlays", description: "Visual overlays and analytics displayed", severity: "info" as const },
-    ]
-
-    let eventIndex = 0
-    const interval = setInterval(() => {
-      if (eventIndex < events.length && isRunning) {
-        const event = events[eventIndex]
-        setLiveEvents((prev) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            ...event,
-            timestamp: new Date().toLocaleTimeString(),
-          },
-        ])
-        eventIndex++
-      } else {
-        clearInterval(interval)
-      }
-    }, 1000)
-  }
-
-  const getEventIcon = (severity: string) => {
-    switch (severity) {
-      case "error":
-        return <AlertTriangle size={16} className="text-red" />
-      case "warning":
-        return <AlertTriangle size={16} className="text-yellow" />
-      default:
-        return <CheckCircle size={16} className="text-green" />
-    }
-  }
+  const liveSignals = ["Frame grading", "Light balance", "Camera framing"]
 
   return (
-    <div className="webcam-analysis-page">
-      {/* Header */}
-      <header className="analysis-header">
-        <div className="header-left">
-          <Link to="/dashboard" className="btn btn-ghost">
-            <ArrowLeft size={16} />
-            Back to Dashboard
+    <div className="page page-webcam">
+      <header className="topbar">
+        <div className="topbar-actions">
+          <Link to="/dashboard" className="button button-ghost">
+            <ArrowLeft size={18} />
+            Back
           </Link>
-          <div className="page-title">
-            <BarChart3 size={24} />
-            <span>Basketball Analysis</span>
-          </div>
         </div>
 
-        <div className="header-right">
-          {isRunning && (
-            <div className="recording-badge">
-              <div className="pulse-dot"></div>
-              Analysis Running
-            </div>
-          )}
-        </div>
+        <Link to="/" className="brand">
+          <BarChart3 size={24} />
+          <span>Netly</span>
+        </Link>
       </header>
 
-      <main className="webcam-main">
-        <div className="container">
-          <div className="webcam-layout">
-            {/* Video Feed */}
-            <div className="video-section">
-              <div className="video-card">
-                <div className="video-header">
-                  <Camera size={20} />
-                  <h3>Basketball Analysis</h3>
-                </div>
-                <div className="video-container">
-                  {!isRunning ? (
-                    <div className="video-overlay">
-                      <div className="video-placeholder">
-                        <Camera size={64} className="placeholder-icon" />
-                        <p>Ready to start basketball analysis</p>
-                        <p className="text-sm text-gray-600 mt-2">
-                          This will open a desktop window with real-time analysis using the backend webcam
-                        </p>
-                        <button onClick={startAnalysis} className="btn btn-primary btn-large">
-                          Start Analysis
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="video-overlay">
-                      <div className="video-placeholder">
-                        <CheckCircle size={64} className="placeholder-icon text-green" />
-                        <p>Analysis Window Active</p>
-                        <p className="text-sm text-gray-600 mt-2">
-                          Check your desktop for the basketball analysis window
-                        </p>
-                        {processInfo?.message && (
-                          <p className="text-sm text-blue-600 mt-2">{processInfo.message}</p>
-                        )}
-                        {processInfo?.pid && (
-                          <p className="text-sm text-gray-500 mt-1">Process ID: {processInfo.pid}</p>
-                        )}
-                        <button onClick={stopAnalysis} className="btn btn-danger btn-large">
-                          <Square size={16} />
-                          Stop Analysis
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+      <main className="workspace-shell">
+        <section className="workspace-header">
+          <div>
+            <span className="eyebrow">Live webcam review</span>
+            <h1>Tune the setup before the rep starts.</h1>
+            <p>
+              The app captures still frames every few seconds and scores the current lighting, clarity, contrast, and
+              framing conditions inside the same arena-style workflow as the rest of the product.
+            </p>
 
-                {processInfo?.error && (
-                  <div className="error-message">
-                    <AlertTriangle size={16} />
-                    <span>{processInfo.error}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Live Events */}
-            <div className="events-section">
-              <div className="events-card">
-                <div className="events-header">
-                  <h3>Analysis Status</h3>
-                </div>
-                <div className="events-list">
-                  {liveEvents.length === 0 ? (
-                    <p className="events-placeholder">
-                      {isRunning ? "Starting analysis..." : "Start analysis to see status updates"}
-                    </p>
-                  ) : (
-                    liveEvents.map((event) => (
-                      <div key={event.id} className={`event-item ${event.severity}`}>
-                        <div className="event-content">
-                          {getEventIcon(event.severity)}
-                          <div className="event-details">
-                            <div className="event-header">
-                              <h4>{event.type}</h4>
-                              <span className="event-time">{event.timestamp}</span>
-                            </div>
-                            <p className="event-description">{event.description}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Instructions */}
-              <div className="stats-card">
-                <div className="stats-header">
-                  <h3>How to Use</h3>
-                </div>
-                <div className="instructions">
-                  <ol>
-                    <li>Click "Start Analysis" to launch the desktop app</li>
-                    <li>A new window will open with real-time basketball analysis</li>
-                    <li>The app uses your computer's webcam for detection</li>
-                    <li>Press 'q' in the analysis window to quit</li>
-                    <li>You'll see overlays, bounding boxes, and violation detection</li>
-                  </ol>
-                </div>
-              </div>
-
-              {/* Features */}
-              <div className="stats-card">
-                <div className="stats-header">
-                  <h3>Features</h3>
-                </div>
-                <div className="features-list">
-                  <div className="feature-item">
-                    <CheckCircle size={16} className="text-green" />
-                    <span>Real-time basketball detection</span>
-                  </div>
-                  <div className="feature-item">
-                    <CheckCircle size={16} className="text-green" />
-                    <span>Player pose estimation</span>
-                  </div>
-                  <div className="feature-item">
-                    <CheckCircle size={16} className="text-green" />
-                    <span>Traveling violation detection</span>
-                  </div>
-                  <div className="feature-item">
-                    <CheckCircle size={16} className="text-green" />
-                    <span>Visual overlays and analytics</span>
-                  </div>
-                </div>
-              </div>
+            <div className="workspace-chip-row">
+              {liveSignals.map((signal) => (
+                <span key={signal} className="workspace-chip">
+                  {signal}
+                </span>
+              ))}
             </div>
           </div>
+        </section>
+
+        <div className="camera-layout">
+          <section className="panel panel-spacious">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">Preview</span>
+                <h2>Browser camera</h2>
+              </div>
+              <div className={`status-chip ${isAnalyzing ? "status-chip-live" : ""}`}>
+                {isAnalyzing ? "Live review running" : isCameraReady ? "Camera ready" : "Camera idle"}
+              </div>
+            </div>
+
+            <div className="camera-frame">
+              {!isCameraReady ? (
+                <div className="camera-overlay">
+                  <Camera size={36} />
+                  <strong>Start your camera to open the live workspace</strong>
+                  <span>No desktop process required.</span>
+                </div>
+              ) : null}
+              <div className="camera-scan-line" />
+              <video ref={videoRef} muted playsInline className="video-element" />
+            </div>
+
+            <div className="control-row">
+              <button type="button" className="button button-primary" onClick={() => void startReview()}>
+                <PlayCircle size={18} />
+                {isAnalyzing ? "Refresh snapshot loop" : "Start live review"}
+              </button>
+
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={pauseReview}
+                disabled={!isAnalyzing}
+              >
+                <PauseCircle size={18} />
+                Pause
+              </button>
+
+              <button
+                type="button"
+                className="button button-ghost"
+                onClick={stopCamera}
+                disabled={!isCameraReady && !isAnalyzing}
+              >
+                <Square size={18} />
+                Stop camera
+              </button>
+            </div>
+
+            {error ? (
+              <div className="inline-alert inline-alert-danger">
+                <AlertCircle size={18} />
+                <span>{error}</span>
+              </div>
+            ) : null}
+
+            <canvas ref={canvasRef} hidden />
+          </section>
+
+          <aside className="results-sidebar">
+            <section className="panel panel-spacious">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">Latest score</span>
+                  <h2>Setup readiness</h2>
+                </div>
+              </div>
+
+              {snapshot ? (
+                <>
+                  <div className="readiness-meter">
+                    <strong>{Math.round(snapshot.readiness_score)}</strong>
+                    <span>{snapshot.status === "ready" ? "Ready for review" : "Needs adjustment"}</span>
+                  </div>
+
+                  <div className="metric-grid">
+                    <article className="metric-card">
+                      <span>Brightness</span>
+                      <strong>{Math.round(snapshot.metrics.brightness)}</strong>
+                    </article>
+                    <article className="metric-card">
+                      <span>Clarity</span>
+                      <strong>{Math.round(snapshot.metrics.clarity)}</strong>
+                    </article>
+                    <article className="metric-card">
+                      <span>Contrast</span>
+                      <strong>{Math.round(snapshot.metrics.contrast)}</strong>
+                    </article>
+                    <article className="metric-card">
+                      <span>Framing</span>
+                      <strong>{Math.round(snapshot.metrics.framing)}</strong>
+                    </article>
+                  </div>
+
+                  <div className="insight-list">
+                    {snapshot.insights.map((insight) => (
+                      <div key={insight} className="insight-row">
+                        <span>{insight}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <Camera size={20} />
+                  <p>Start live review to generate your first setup score.</p>
+                </div>
+              )}
+            </section>
+
+            <section className="panel panel-spacious">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">Recent checks</span>
+                  <h2>Snapshot history</h2>
+                </div>
+              </div>
+
+              <div className="event-list">
+                {history.length === 0 ? (
+                  <div className="empty-state">
+                    <Camera size={20} />
+                    <p>Recent snapshot checks will appear here once live review begins.</p>
+                  </div>
+                ) : (
+                  history.map((item) => (
+                    <div
+                      key={item.timestamp}
+                      className={`event-row ${item.status === "ready" ? "info" : "warning"}`}
+                    >
+                      <div className="event-row-meta">
+                        <strong>{item.status === "ready" ? "Ready" : "Adjust"}</strong>
+                        <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <p>{item.insights[0]}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </aside>
         </div>
       </main>
     </div>

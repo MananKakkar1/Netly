@@ -1,1 +1,9 @@
 .env
+.DS_Store
+backend/__pycache__/
+backend/data/*
+!backend/data/.gitkeep
+!backend/data/sessions/
+!backend/data/sessions/.gitkeep
+frontend/dist/
+frontend/node_modules/
